@@ -50,9 +50,9 @@ function getModelName(resolution: '2K' | '4K'): string {
 }
 
 function getApiEndpoint(modelName: string): string {
-  // В production на Vercel используем относительный путь к serverless function
-  // В development используем Vite proxy
-  const endpoint = `${BASE_URL}/v1beta/models/${modelName}:generateContent`;
+  // Используем новый endpoint без двоеточия в пути
+  // Двоеточие передается как query параметр, чтобы избежать проблем с роутингом Vercel
+  const endpoint = `${BASE_URL}/generate?model=${encodeURIComponent(modelName)}&action=generateContent`;
   console.log('[getApiEndpoint] BASE_URL:', BASE_URL, '→ endpoint:', endpoint);
   return endpoint;
 }
