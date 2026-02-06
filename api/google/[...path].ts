@@ -4,10 +4,22 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
+  // Обработка CORS preflight запросов
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key');
+    return res.status(200).end();
+  }
+
   // Получаем путь из параметров
   const path = Array.isArray(req.query.path) 
     ? req.query.path.join('/') 
     : req.query.path || '';
+
+  // Добавляем query параметры если они есть
+  const queryString = new URLSearchParams(req.query as Record<string, string>).toString();
+  const pathWithQuery = queryString ? `${path}?${queryString}` : path;
 
   // Получаем API ключ из переменных окружения
   // В Vercel переменные окружения доступны без префикса VITE_
@@ -23,7 +35,7 @@ export default async function handler(
   }
 
   // Формируем URL для Google API
-  const targetUrl = `https://generativelanguage.googleapis.com/v1beta/${path}`;
+  const targetUrl = `https://generativelanguage.googleapis.com/v1beta/${pathWithQuery}`;
 
   try {
     // Получаем тело запроса
