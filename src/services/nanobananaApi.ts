@@ -373,14 +373,38 @@ export async function generateBatchImages(
 
       if (!response.ok) {
         let errorData: any = {};
+        let responseText = '';
         try {
-          const text = await response.text();
-          errorData = text ? JSON.parse(text) : {};
+          responseText = await response.text();
+          errorData = responseText ? JSON.parse(responseText) : {};
         } catch {
           errorData = {};
         }
         
+        // Детальное логирование ошибки
+        console.error(`[Batch Request ${index + 1}] Error response:`, {
+          status: response.status,
+          statusText: response.statusText,
+          url: response.url,
+          errorData,
+          responseText: responseText.substring(0, 500), // Первые 500 символов
+        });
+        
         const errorMessage = errorData.error?.message || errorData.message || `Ошибка API: ${response.status} ${response.statusText}`;
+        
+        // Специальная обработка 404
+        if (response.status === 404) {
+          throw new Error(
+            `404 Not Found при запросе к ${endpoint}.\n` +
+            `Возможные причины:\n` +
+            `1. Serverless function не найдена (проверьте логи Vercel)\n` +
+            `2. Неправильный путь к Google API\n` +
+            `3. Модель недоступна\n\n` +
+            `Детали: ${errorMessage}\n` +
+            `Response: ${responseText.substring(0, 200)}`
+          );
+        }
+        
         throw new Error(`Ошибка при генерации изображения ${index + 1}: ${errorMessage}`);
       }
 
