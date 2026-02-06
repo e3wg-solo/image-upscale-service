@@ -19,6 +19,12 @@ export default async function handler(
   
   const path = pathSegments.join('/');
 
+  // Логирование для отладки
+  console.log('[Serverless Function] Request method:', req.method);
+  console.log('[Serverless Function] Path segments:', pathSegments);
+  console.log('[Serverless Function] Full path:', path);
+  console.log('[Serverless Function] Query params:', req.query);
+
   // Формируем query параметры (исключаем path)
   const queryParams = new URLSearchParams();
   Object.entries(req.query).forEach(([key, value]) => {
@@ -41,7 +47,11 @@ export default async function handler(
                  process.env.GOOGLE_API_KEY ||
                  process.env.NANOBANANA_API_KEY;
 
+  console.log('[Serverless Function] API key present:', !!apiKey);
+  console.log('[Serverless Function] API key length:', apiKey ? apiKey.length : 0);
+
   if (!apiKey) {
+    console.error('[Serverless Function] API key missing!');
     return res.status(500).json({ 
       error: 'API ключ не настроен. Установите VITE_GOOGLE_API_KEY в переменных окружения Vercel.' 
     });
@@ -49,6 +59,7 @@ export default async function handler(
 
   // Формируем URL для Google API
   const targetUrl = `https://generativelanguage.googleapis.com/v1beta/${pathWithQuery}`;
+  console.log('[Serverless Function] Target URL:', targetUrl);
 
   try {
     // Получаем тело запроса (только для методов с телом)
@@ -64,11 +75,18 @@ export default async function handler(
     };
 
     // Проксируем запрос к Google API
+    console.log('[Serverless Function] Making request to:', targetUrl);
+    console.log('[Serverless Function] Request headers:', headers);
+    console.log('[Serverless Function] Request body length:', body ? body.length : 0);
+    
     const response = await fetch(targetUrl, {
       method: req.method,
       headers,
       body,
     });
+
+    console.log('[Serverless Function] Response status:', response.status);
+    console.log('[Serverless Function] Response headers:', Object.fromEntries(response.headers.entries()));
 
     // Получаем данные ответа
     const data = await response.text();
@@ -76,8 +94,10 @@ export default async function handler(
     
     try {
       jsonData = JSON.parse(data);
+      console.log('[Serverless Function] Response data keys:', Object.keys(jsonData));
     } catch {
       jsonData = data;
+      console.log('[Serverless Function] Response is not JSON, length:', data.length);
     }
 
     // Устанавливаем CORS заголовки
@@ -86,6 +106,7 @@ export default async function handler(
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key');
 
     // Возвращаем ответ
+    console.log('[Serverless Function] Returning response with status:', response.status);
     res.status(response.status).json(jsonData);
   } catch (error) {
     console.error('Proxy error:', error);
