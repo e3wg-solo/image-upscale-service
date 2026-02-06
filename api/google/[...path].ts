@@ -12,13 +12,26 @@ export default async function handler(
     return res.status(200).end();
   }
 
-  // Получаем путь из параметров
-  const path = Array.isArray(req.query.path) 
-    ? req.query.path.join('/') 
-    : req.query.path || '';
+  // Получаем путь из параметров (исключаем сам path из query)
+  const pathSegments = Array.isArray(req.query.path) 
+    ? req.query.path 
+    : req.query.path ? [req.query.path] : [];
+  
+  const path = pathSegments.join('/');
 
-  // Добавляем query параметры если они есть
-  const queryString = new URLSearchParams(req.query as Record<string, string>).toString();
+  // Формируем query параметры (исключаем path)
+  const queryParams = new URLSearchParams();
+  Object.entries(req.query).forEach(([key, value]) => {
+    if (key !== 'path' && value !== undefined) {
+      if (Array.isArray(value)) {
+        value.forEach(v => queryParams.append(key, String(v)));
+      } else {
+        queryParams.append(key, String(value));
+      }
+    }
+  });
+  
+  const queryString = queryParams.toString();
   const pathWithQuery = queryString ? `${path}?${queryString}` : path;
 
   // Получаем API ключ из переменных окружения
@@ -38,10 +51,11 @@ export default async function handler(
   const targetUrl = `https://generativelanguage.googleapis.com/v1beta/${pathWithQuery}`;
 
   try {
-    // Получаем тело запроса
-    const body = req.method === 'POST' || req.method === 'PUT' 
-      ? JSON.stringify(req.body) 
-      : undefined;
+    // Получаем тело запроса (только для методов с телом)
+    let body: string | undefined = undefined;
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    }
 
     // Формируем заголовки для проксирования
     const headers: Record<string, string> = {
