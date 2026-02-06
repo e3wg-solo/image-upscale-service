@@ -50,7 +50,11 @@ function getModelName(resolution: '2K' | '4K'): string {
 }
 
 function getApiEndpoint(modelName: string): string {
-  return `${BASE_URL}/v1beta/models/${modelName}:generateContent`;
+  // В production на Vercel используем относительный путь к serverless function
+  // В development используем Vite proxy
+  const endpoint = `${BASE_URL}/v1beta/models/${modelName}:generateContent`;
+  console.log('[getApiEndpoint] BASE_URL:', BASE_URL, '→ endpoint:', endpoint);
+  return endpoint;
 }
 
 /**
@@ -160,6 +164,8 @@ export async function generateImage(
     }
 
     console.log('Making request to:', endpoint);
+    console.log('BASE_URL:', BASE_URL);
+    console.log('USE_PROXY:', USE_PROXY);
     console.log('Model:', modelName);
     console.log('Request body:', requestBody);
 
@@ -342,6 +348,8 @@ export async function generateBatchImages(
     }
 
     console.log('Making batch request to:', endpoint);
+    console.log('BASE_URL:', BASE_URL);
+    console.log('USE_PROXY:', USE_PROXY);
     console.log('Model:', modelName);
     console.log('Number of images:', numberOfImages);
 
