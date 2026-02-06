@@ -25,12 +25,21 @@ export default async function handler(
     ? req.query.path 
     : req.query.path ? [req.query.path] : [];
   
-  // Если путь пустой, пытаемся получить из URL
+  // Если путь пустой, пытаемся получить из URL используя WHATWG URL API
   let path = pathSegments.join('/');
   if (!path && req.url) {
-    // Извлекаем путь из URL, убирая /api/google
-    const urlPath = req.url.split('?')[0]; // Убираем query параметры
-    path = urlPath.replace(/^\/api\/google\/?/, '');
+    try {
+      // Используем WHATWG URL API вместо url.parse()
+      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const urlPath = url.pathname;
+      path = urlPath.replace(/^\/api\/google\/?/, '');
+      console.log('[Serverless Function] Extracted path from URL:', path);
+    } catch (error) {
+      // Fallback на простой split если URL parsing не удался
+      const urlPath = req.url.split('?')[0];
+      path = urlPath.replace(/^\/api\/google\/?/, '');
+      console.log('[Serverless Function] Fallback path extraction:', path);
+    }
   }
 
   // Логирование для отладки
@@ -72,8 +81,22 @@ export default async function handler(
     });
   }
 
-  // Формируем URL для Google API
-  const targetUrl = `https://generativelanguage.googleapis.com/v1beta/${pathWithQuery}`;
+  // Формируем URL для Google API используя WHATWG URL API
+  // Это гарантирует правильное кодирование специальных символов
+  let targetUrl: string;
+  try {
+    const baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+    const url = new URL(pathWithQuery, baseUrl + '/');
+    // Если есть query параметры, добавляем их
+    if (queryString) {
+      url.search = queryString;
+    }
+    targetUrl = url.toString();
+  } catch (error) {
+    // Fallback на простую конкатенацию
+    targetUrl = `https://generativelanguage.googleapis.com/v1beta/${pathWithQuery}`;
+    console.warn('[Serverless Function] URL construction fallback used');
+  }
   console.log('[Serverless Function] Target URL:', targetUrl);
 
   try {
