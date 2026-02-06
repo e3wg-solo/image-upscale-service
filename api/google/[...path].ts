@@ -124,6 +124,7 @@ export default async function handler(
     });
 
     console.log('[Serverless Function] Response status:', response.status);
+    console.log('[Serverless Function] Response statusText:', response.statusText);
     console.log('[Serverless Function] Response headers:', Object.fromEntries(response.headers.entries()));
 
     // Получаем данные ответа
@@ -133,9 +134,16 @@ export default async function handler(
     try {
       jsonData = JSON.parse(data);
       console.log('[Serverless Function] Response data keys:', Object.keys(jsonData));
+      // Логируем полный ответ для 404 ошибок
+      if (response.status === 404) {
+        console.error('[Serverless Function] 404 Error - Full response:', JSON.stringify(jsonData, null, 2));
+      }
     } catch {
       jsonData = data;
       console.log('[Serverless Function] Response is not JSON, length:', data.length);
+      if (response.status === 404) {
+        console.error('[Serverless Function] 404 Error - Response text:', data.substring(0, 500));
+      }
     }
 
     // Устанавливаем CORS заголовки
