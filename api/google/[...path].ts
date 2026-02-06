@@ -4,6 +4,13 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
+  // Логирование в самом начале для проверки, что функция вызывается
+  console.log('[Serverless Function] ===== FUNCTION CALLED =====');
+  console.log('[Serverless Function] URL:', req.url);
+  console.log('[Serverless Function] Method:', req.method);
+  console.log('[Serverless Function] Query:', req.query);
+  console.log('[Serverless Function] Headers:', req.headers);
+  
   // Обработка CORS preflight запросов
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,17 +20,25 @@ export default async function handler(
   }
 
   // Получаем путь из параметров (исключаем сам path из query)
+  // В Vercel динамический роутинг [...path] передает путь как массив в req.query.path
   const pathSegments = Array.isArray(req.query.path) 
     ? req.query.path 
     : req.query.path ? [req.query.path] : [];
   
-  const path = pathSegments.join('/');
+  // Если путь пустой, пытаемся получить из URL
+  let path = pathSegments.join('/');
+  if (!path && req.url) {
+    // Извлекаем путь из URL, убирая /api/google
+    const urlPath = req.url.split('?')[0]; // Убираем query параметры
+    path = urlPath.replace(/^\/api\/google\/?/, '');
+  }
 
   // Логирование для отладки
   console.log('[Serverless Function] Request method:', req.method);
   console.log('[Serverless Function] Path segments:', pathSegments);
   console.log('[Serverless Function] Full path:', path);
   console.log('[Serverless Function] Query params:', req.query);
+  console.log('[Serverless Function] Request URL:', req.url);
 
   // Формируем query параметры (исключаем path)
   const queryParams = new URLSearchParams();
