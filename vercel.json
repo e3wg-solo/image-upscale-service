@@ -4,29 +4,9 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "framework": "vite",
-  "rewrites": [
-    {
-      "source": "/api/google/:path*",
-      "destination": "https://generativelanguage.googleapis.com/v1beta/:path*"
+  "functions": {
+    "api/google/[...path].ts": {
+      "runtime": "nodejs20.x"
     }
-  ],
-  "headers": [
-    {
-      "source": "/api/google/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, DELETE, OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization, x-goog-api-key"
-        }
-      ]
-    }
-  ]
+  }
 }

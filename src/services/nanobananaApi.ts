@@ -11,15 +11,35 @@ export interface ApiError {
   code?: string;
 }
 
-// Получаем API ключ из переменных окружения
-const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || import.meta.env.VITE_NANOBANANA_API_KEY || '';
-// Используем proxy в dev режиме для обхода CORS, в production нужен бэкенд
-const USE_PROXY = import.meta.env.DEV;
-// Правильный endpoint для Google Gemini API (Nano Banana)
-// Используем gemini-3-pro-image-preview для лучшего качества или gemini-2.5-flash-image для скорости
-const BASE_URL = USE_PROXY 
-  ? '/api/google'
-  : 'https://generativelanguage.googleapis.com';
+// Получаем API ключ из переменных окружения и очищаем от недопустимых символов
+function getApiKey(): string {
+  const rawKey = import.meta.env.VITE_GOOGLE_API_KEY || import.meta.env.VITE_NANOBANANA_API_KEY || '';
+  
+  // Проверяем наличие недопустимых символов (не ISO-8859-1)
+  const invalidChars = rawKey.match(/[^\x20-\x7E]/g);
+  if (invalidChars && invalidChars.length > 0) {
+    console.warn('⚠️ Обнаружены недопустимые символы в API ключе:', invalidChars);
+    console.warn('⚠️ Эти символы будут удалены. Убедитесь, что API ключ скопирован правильно.');
+  }
+  
+  // Удаляем все символы, которые не являются допустимыми для HTTP заголовков (ISO-8859-1)
+  // Оставляем только печатные ASCII символы (буквы, цифры, дефисы, подчеркивания, точки и т.д.)
+  const cleanedKey = rawKey.replace(/[^\x20-\x7E]/g, '').trim();
+  
+  if (rawKey !== cleanedKey) {
+    console.warn('⚠️ API ключ был очищен от недопустимых символов');
+    console.warn('⚠️ Оригинальная длина:', rawKey.length, '→ Очищенная длина:', cleanedKey.length);
+  }
+  
+  return cleanedKey;
+}
+
+const API_KEY = getApiKey();
+
+// Определяем, использовать ли прокси
+// В dev режиме используем Vite proxy, в production используем Vercel serverless function
+const USE_PROXY = true; // Всегда используем прокси через /api/google (Vite proxy в dev, serverless function в prod)
+const BASE_URL = '/api/google';
 
 // Выбираем модель в зависимости от разрешения
 function getModelName(resolution: '2K' | '4K'): string {
@@ -143,12 +163,19 @@ export async function generateImage(
     console.log('Model:', modelName);
     console.log('Request body:', requestBody);
 
+    // При использовании прокси не передаем API ключ - он будет взят из переменных окружения сервера
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Только если не используем прокси (прямой запрос), добавляем API ключ
+    if (!USE_PROXY && API_KEY) {
+      headers['x-goog-api-key'] = API_KEY;
+    }
+
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': API_KEY, // API ключ в заголовке, не в query параметре!
-      },
+      headers,
       body: JSON.stringify(requestBody),
     });
 
@@ -183,26 +210,54 @@ export async function generateImage(
 
     const data = await response.json();
 
+    // Детальное логирование для отладки
+    console.log('[Single Request] Response status:', response.status);
+    console.log('[Single Request] Response data structure:', {
+      hasCandidates: !!data.candidates,
+      candidatesLength: data.candidates?.length || 0,
+      hasContent: !!data.candidates?.[0]?.content,
+      hasParts: !!data.candidates?.[0]?.content?.parts,
+      partsLength: data.candidates?.[0]?.content?.parts?.length || 0,
+    });
+
     // Обрабатываем ответ согласно формату Gemini API
     // Формат: data.candidates[0].content.parts[] где каждый part может быть inlineData
     if (data.candidates && data.candidates.length > 0) {
       const candidate = data.candidates[0];
+      
+      // Проверяем наличие ошибки в ответе
+      if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+        console.warn('[Single Request] Finish reason:', candidate.finishReason);
+        if (candidate.finishReason === 'SAFETY') {
+          throw new Error('Генерация изображения была заблокирована системой безопасности. Попробуйте изменить промпт.');
+        }
+        if (candidate.finishReason === 'RECITATION') {
+          throw new Error('Промпт содержит защищенный контент. Попробуйте изменить промпт.');
+        }
+      }
+      
       if (candidate.content && candidate.content.parts) {
         for (const part of candidate.content.parts) {
           // Ищем часть с изображением
           if (part.inlineData && part.inlineData.data) {
             const imageUrl = base64ToBlobUrl(part.inlineData.data, part.inlineData.mimeType || 'image/png');
+            console.log('[Single Request] Image found, size:', part.inlineData.data.length);
             return {
               imageUrl,
               id: `img-${Date.now()}-${Math.random()}`,
             };
           }
+          
+          // Если есть текстовая часть, логируем её
+          if (part.text) {
+            console.log('[Single Request] Text part found:', part.text.substring(0, 100));
+          }
         }
       }
     }
 
-    // Логируем ответ для отладки
-    console.error('Неожиданный формат ответа от API:', data);
+    // Детальное логирование структуры ответа при ошибке
+    console.error('[Single Request] Full response data:', JSON.stringify(data, null, 2));
     throw new Error('Не удалось найти изображение в ответе API. Проверьте консоль для деталей.');
   } catch (error) {
     // Обработка CORS и сетевых ошибок
@@ -292,12 +347,19 @@ export async function generateBatchImages(
 
     // Делаем несколько запросов параллельно
     const promises = Array.from({ length: numberOfImages }, async (_, index) => {
+      // При использовании прокси не передаем API ключ - он будет взят из переменных окружения сервера
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Только если не используем прокси (прямой запрос), добавляем API ключ
+      if (!USE_PROXY && API_KEY) {
+        headers['x-goog-api-key'] = API_KEY;
+      }
+
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': API_KEY, // API ключ в заголовке!
-        },
+        headers,
         body: JSON.stringify(requestBody),
       });
 
@@ -316,23 +378,54 @@ export async function generateBatchImages(
 
       const data = await response.json();
 
+      // Детальное логирование для отладки
+      console.log(`[Batch Request ${index + 1}] Response status:`, response.status);
+      console.log(`[Batch Request ${index + 1}] Response data structure:`, {
+        hasCandidates: !!data.candidates,
+        candidatesLength: data.candidates?.length || 0,
+        hasContent: !!data.candidates?.[0]?.content,
+        hasParts: !!data.candidates?.[0]?.content?.parts,
+        partsLength: data.candidates?.[0]?.content?.parts?.length || 0,
+        partsTypes: data.candidates?.[0]?.content?.parts?.map((p: any) => ({
+          hasText: !!p.text,
+          hasInlineData: !!p.inlineData,
+          inlineDataType: p.inlineData?.mimeType,
+          inlineDataLength: p.inlineData?.data?.length || 0,
+        })) || [],
+      });
+
       // Обрабатываем ответ согласно формату Gemini API
       if (data.candidates && data.candidates.length > 0) {
         const candidate = data.candidates[0];
+        
+        // Проверяем наличие ошибки в ответе
+        if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+          console.warn(`[Batch Request ${index + 1}] Finish reason:`, candidate.finishReason);
+        }
+        
         if (candidate.content && candidate.content.parts) {
           for (const part of candidate.content.parts) {
+            // Ищем часть с изображением
             if (part.inlineData && part.inlineData.data) {
               const imageUrl = base64ToBlobUrl(part.inlineData.data, part.inlineData.mimeType || 'image/png');
+              console.log(`[Batch Request ${index + 1}] Image found, size:`, part.inlineData.data.length);
               return {
                 imageUrl,
                 id: `img-${Date.now()}-${index}`,
               };
             }
+            
+            // Если есть текстовая часть, логируем её
+            if (part.text) {
+              console.log(`[Batch Request ${index + 1}] Text part found:`, part.text.substring(0, 100));
+            }
           }
         }
       }
 
-      throw new Error(`Не удалось найти изображение в ответе API для запроса ${index + 1}`);
+      // Детальное логирование структуры ответа при ошибке
+      console.error(`[Batch Request ${index + 1}] Full response data:`, JSON.stringify(data, null, 2));
+      throw new Error(`Не удалось найти изображение в ответе API для запроса ${index + 1}. Проверьте консоль для деталей.`);
     });
 
     const results = await Promise.all(promises);
